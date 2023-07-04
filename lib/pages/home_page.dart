@@ -1,15 +1,18 @@
-// ignore_for_file: deprecated_member_use
+// ignore_for_file: deprecated_member_use, avoid_print, non_constant_identifier_names
 
 import 'dart:convert';
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:get/get.dart';
 import 'package:http/http.dart' as http;
 import 'package:glassmorphism/glassmorphism.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 import 'package:weather_app/constants/climatecode.dart';
+import 'package:weather_app/contoller/controller.dart';
 import 'package:weather_app/server/server.dart';
 import 'package:weather_app/widgets/cloudicon.dart';
 import 'package:weather_app/widgets/textstyle.dart';
@@ -23,10 +26,11 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   PageController pageController = PageController();
+  Controller controller = Get.find();
   Future<dynamic> getLocation() async {
     bool serviceEnabled;
     LocationPermission permission;
-
+    SharedPreferences sharedPreferences = await SharedPreferences.getInstance();
     serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       return;
@@ -47,9 +51,14 @@ class _HomePageState extends State<HomePage> {
 
     Position position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high);
+    String lat = "";
+    String long = "";
+
     lat = position.latitude.toString();
     long = position.longitude.toString();
-    dynamic data;
+    String url =
+        'http://api.openweathermap.org/data/2.5/weather?lat=$lat&lon=$long&appid=63a3c712c1e9ad55e7b8e38bd4d27e52';
+    dynamic data = {};
     var headers = {
       'Content-Type': 'application/json',
       'Access-Control-Allow-Origin': '*',
@@ -59,12 +68,31 @@ class _HomePageState extends State<HomePage> {
     };
     try {
       var response = await http.get(Uri.parse(url), headers: headers);
-      data = jsonDecode(response.body);
-    } on Error catch (e) {
-      print('Failed host lookup: $e');
-    }
 
-    return data;
+      if (response.statusCode == 200) {
+        data = jsonDecode(response.body);
+        sharedPreferences.setString('saveddata', jsonEncode(data));
+        sharedPreferences.setString('last_updated', DateTime.now().toString());
+        controller.updateTime("Now");
+        return data;
+      } else {
+        throw Exception('Failed to fetch data');
+      }
+    } catch (e) {
+      String savedData = sharedPreferences.getString('saveddata') ?? '';
+      String savedTime = sharedPreferences.getString('last_updated') ?? '';
+
+      if (savedData.isNotEmpty && savedTime.isNotEmpty) {
+        DateTime savedTimeDateTime = DateTime.parse(savedTime);
+
+        controller.updateTime(formatTimeDifference(savedTimeDateTime));
+
+        dynamic saved = jsonDecode(savedData);
+        return saved;
+      } else {
+        throw Exception('No saved data available');
+      }
+    }
   }
 
   String getCompassDirection(double degrees) {
@@ -91,6 +119,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<dynamic> getdata(String location) async {
+    SharedPreferences sharedPreferences = await SharedPreferences.getInstance();
     String apiUrl =
         'http://api.openweathermap.org/data/2.5/weather?q=$location&appid=63a3c712c1e9ad55e7b8e38bd4d27e52';
     var headers = {
@@ -103,11 +132,47 @@ class _HomePageState extends State<HomePage> {
     dynamic data;
     try {
       var response = await http.get(Uri.parse(apiUrl), headers: headers);
-      data = jsonDecode(response.body);
-    } on Error catch (e) {
-      print('Failed host lookup: $e');
+
+      if (response.statusCode == 200) {
+        data = jsonDecode(response.body);
+        sharedPreferences.setString('saveddata$location', jsonEncode(data));
+        sharedPreferences.setString('last_updated', DateTime.now().toString());
+        controller.updateTime("Now");
+        return data;
+      } else {
+        throw Exception('Failed to fetch data');
+      }
+    } catch (e) {
+      String savedData =
+          sharedPreferences.getString('saveddata$location') ?? '';
+      String savedTime = sharedPreferences.getString('last_updated') ?? '';
+
+      if (savedData.isNotEmpty && savedTime.isNotEmpty) {
+        DateTime savedTimeDateTime = DateTime.parse(savedTime);
+
+        controller.updateTime(formatTimeDifference(savedTimeDateTime));
+
+        dynamic saved = jsonDecode(savedData);
+        print(saved);
+        return saved;
+      } else {
+        throw Exception('No saved data available');
+      }
     }
-    return data;
+  }
+
+  String formatTimeDifference(DateTime savedDateTime) {
+    Duration difference = DateTime.now().difference(savedDateTime);
+
+    if (difference.inSeconds < 60) {
+      return '${difference.inSeconds}s ago';
+    } else if (difference.inMinutes < 60) {
+      return '${difference.inMinutes} min ago';
+    } else if (difference.inHours < 24) {
+      return '${difference.inHours}h ago';
+    } else {
+      return '${difference.inDays}d ago';
+    }
   }
 
   @override
@@ -132,15 +197,15 @@ class _HomePageState extends State<HomePage> {
                             ? Container()
                             : Stack(
                                 children: [
-                                  CachedNetworkImage(
+                                  Image.asset(
+                                    getWeatherConditionImageasset(
+                                        snapshot.data!["weather"][0]["icon"]),
                                     height: MediaQuery.of(context).size.height,
                                     fit: BoxFit.cover,
-                                    imageUrl: getWeatherConditionImageUrl(
-                                        snapshot.data["weather"][0]["icon"]),
                                   ),
                                   Padding(
-                                    padding: const EdgeInsets.only(
-                                        top: 60, left: 30, right: 30),
+                                    padding: EdgeInsets.only(
+                                        top: 60.h, left: 30.w, right: 30.w),
                                     child: Column(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
@@ -150,24 +215,34 @@ class _HomePageState extends State<HomePage> {
                                             index == 0
                                                 ? snapshot.data['name']
                                                 : locations[index],
-                                            style: poppins(Colors.white, 20,
+                                            style: poppins(Colors.white, 20.sp,
                                                 FontWeight.bold),
                                           ),
                                         ),
-                                        Center(
-                                          child: Text(
-                                            "${(snapshot.data!["main"]["temp"] - 273).toStringAsFixed(1)}°C",
-                                            style: poppins(Colors.white, 90,
-                                                FontWeight.w900),
+                                        Container(
+                                          padding: EdgeInsets.all(2.h),
+                                          child: Center(
+                                            child: Stack(children: [
+                                              Text(
+                                                "${(snapshot.data!["main"]["temp"] - 273).toStringAsFixed(1)}°C",
+                                                style: poppins(Colors.black,
+                                                    93.sp, FontWeight.w900),
+                                              ),
+                                              Text(
+                                                "${(snapshot.data!["main"]["temp"] - 273).toStringAsFixed(1)}°C",
+                                                style: poppins(Colors.white,
+                                                    90.sp, FontWeight.w900),
+                                              ),
+                                            ]),
                                           ),
                                         ),
                                         Center(
                                           child: GlassmorphicContainer(
-                                              width: 200,
-                                              height: 40,
-                                              borderRadius: 20,
+                                              width: 200.w,
+                                              height: 40.h,
+                                              borderRadius: 20.h,
                                               blur: 15,
-                                              border: 2,
+                                              border: 2.h,
                                               linearGradient: LinearGradient(
                                                   begin: Alignment.topLeft,
                                                   end: Alignment.bottomRight,
@@ -192,28 +267,26 @@ class _HomePageState extends State<HomePage> {
                                                 ],
                                               ),
                                               child: Padding(
-                                                  padding:
-                                                      const EdgeInsets.all(3),
+                                                  padding: EdgeInsets.all(3.h),
                                                   child: Text(
                                                       "  Feels like ${(snapshot.data!["main"]["feels_like"] - 273).toStringAsFixed(1)}°C",
                                                       style: poppins(
                                                           Colors.white,
-                                                          20,
+                                                          20.sp,
                                                           FontWeight.bold)))),
                                         ),
                                         Padding(
-                                          padding:
-                                              const EdgeInsets.only(top: 10),
+                                          padding: EdgeInsets.only(top: 10.h),
                                           child: Row(
                                             mainAxisAlignment:
                                                 MainAxisAlignment.spaceBetween,
                                             children: [
                                               GlassmorphicContainer(
-                                                  width: 90,
-                                                  height: 40,
-                                                  borderRadius: 20,
+                                                  width: 90.w,
+                                                  height: 40.h,
+                                                  borderRadius: 20.h,
                                                   blur: 15,
-                                                  border: 2,
+                                                  border: 2.h,
                                                   linearGradient:
                                                       LinearGradient(
                                                           begin:
@@ -251,26 +324,26 @@ class _HomePageState extends State<HomePage> {
                                                       children: [
                                                         SvgPicture.asset(
                                                           "assets/humid.svg",
-                                                          width: 30,
-                                                          height: 30,
+                                                          width: 30.h,
+                                                          height: 30.h,
                                                           color: Colors.white,
                                                         ),
                                                         Text(
                                                           "${snapshot.data["main"]['humidity']}%",
                                                           style: poppins(
                                                               Colors.white,
-                                                              20,
+                                                              20.sp,
                                                               FontWeight.bold),
                                                         )
                                                       ],
                                                     ),
                                                   )),
                                               GlassmorphicContainer(
-                                                  width: 160,
-                                                  height: 40,
-                                                  borderRadius: 20,
+                                                  width: 160.h,
+                                                  height: 40.h,
+                                                  borderRadius: 20.h,
                                                   blur: 15,
-                                                  border: 2,
+                                                  border: 2.h,
                                                   linearGradient:
                                                       LinearGradient(
                                                           begin:
@@ -300,7 +373,7 @@ class _HomePageState extends State<HomePage> {
                                                   ),
                                                   child: Padding(
                                                     padding:
-                                                        const EdgeInsets.all(3),
+                                                        EdgeInsets.all(3.h),
                                                     child: Row(
                                                       mainAxisAlignment:
                                                           MainAxisAlignment
@@ -308,15 +381,15 @@ class _HomePageState extends State<HomePage> {
                                                       children: [
                                                         SvgPicture.asset(
                                                           "assets/temp.svg",
-                                                          width: 30,
-                                                          height: 30,
+                                                          width: 30.h,
+                                                          height: 30.h,
                                                           color: Colors.white,
                                                         ),
                                                         Text(
                                                           "${(snapshot.data!["main"]["temp_min"] - 273).toStringAsFixed(1)}/${(snapshot.data!["main"]["temp_max"] - 273).toStringAsFixed(1)}°C",
                                                           style: poppins(
                                                               Colors.white,
-                                                              20,
+                                                              20.sp,
                                                               FontWeight.bold),
                                                         )
                                                       ],
@@ -326,18 +399,17 @@ class _HomePageState extends State<HomePage> {
                                           ),
                                         ),
                                         Padding(
-                                          padding:
-                                              const EdgeInsets.only(top: 10),
+                                          padding: EdgeInsets.only(top: 10.h),
                                           child: Row(
                                             mainAxisAlignment:
                                                 MainAxisAlignment.spaceBetween,
                                             children: [
                                               GlassmorphicContainer(
-                                                  width: 100,
-                                                  height: 40,
-                                                  borderRadius: 20,
+                                                  width: 100.h,
+                                                  height: 40.h,
+                                                  borderRadius: 20.h,
                                                   blur: 15,
-                                                  border: 2,
+                                                  border: 2.h,
                                                   linearGradient:
                                                       LinearGradient(
                                                           begin:
@@ -368,8 +440,7 @@ class _HomePageState extends State<HomePage> {
                                                   child: Center(
                                                     child: Padding(
                                                         padding:
-                                                            const EdgeInsets
-                                                                .all(3),
+                                                            EdgeInsets.all(3.h),
                                                         child: CloudCoverageRow(
                                                             percentage: snapshot
                                                                         .data[
@@ -377,11 +448,11 @@ class _HomePageState extends State<HomePage> {
                                                                 ["all"])),
                                                   )),
                                               GlassmorphicContainer(
-                                                  width: 210,
-                                                  height: 40,
-                                                  borderRadius: 20,
+                                                  width: 210.h,
+                                                  height: 40.h,
+                                                  borderRadius: 20.h,
                                                   blur: 15,
-                                                  border: 2,
+                                                  border: 2.h,
                                                   linearGradient:
                                                       LinearGradient(
                                                           begin:
@@ -411,27 +482,25 @@ class _HomePageState extends State<HomePage> {
                                                   ),
                                                   child: Padding(
                                                     padding:
-                                                        const EdgeInsets.all(
-                                                            8.0),
+                                                        EdgeInsets.all(8.0.h),
                                                     child: Center(
                                                       child: Row(
                                                         children: [
                                                           SvgPicture.asset(
                                                             "assets/wind.svg",
-                                                            width: 30,
-                                                            height: 30,
+                                                            width: 30.h,
+                                                            height: 30.h,
                                                             color: Colors.white,
                                                           ),
                                                           Padding(
                                                             padding:
-                                                                const EdgeInsets
-                                                                    .only(
-                                                                    left: 10),
+                                                                EdgeInsets.only(
+                                                                    left: 10.h),
                                                             child: Text(
                                                               "${snapshot.data!["wind"]["speed"]}m/s ${getCompassDirection(snapshot.data!["wind"]["deg"].toDouble())}",
                                                               style: poppins(
                                                                   Colors.white,
-                                                                  20,
+                                                                  20.sp,
                                                                   FontWeight
                                                                       .bold),
                                                             ),
@@ -444,15 +513,14 @@ class _HomePageState extends State<HomePage> {
                                           ),
                                         ),
                                         Padding(
-                                          padding:
-                                              const EdgeInsets.only(top: 30),
+                                          padding: EdgeInsets.only(top: 30.h),
                                           child: Center(
                                             child: GlassmorphicContainer(
-                                                width: 200,
-                                                height: 40,
-                                                borderRadius: 20,
+                                                width: 200.h,
+                                                height: 40.h,
+                                                borderRadius: 20.h,
                                                 blur: 15,
-                                                border: 2,
+                                                border: 2.h,
                                                 linearGradient: LinearGradient(
                                                     begin: Alignment.topLeft,
                                                     end: Alignment.bottomRight,
@@ -479,29 +547,27 @@ class _HomePageState extends State<HomePage> {
                                                 child: Center(
                                                   child: Padding(
                                                       padding:
-                                                          const EdgeInsets.all(
-                                                              3),
+                                                          EdgeInsets.all(3.h),
                                                       child: Text(
                                                         snapshot.data["weather"]
                                                             [0]['main'],
                                                         style: poppins(
                                                             Colors.white,
-                                                            25,
+                                                            25.sp,
                                                             FontWeight.w600),
                                                       )),
                                                 )),
                                           ),
                                         ),
                                         Padding(
-                                          padding:
-                                              const EdgeInsets.only(top: 30),
+                                          padding: EdgeInsets.only(top: 30.h),
                                           child: Center(
                                             child: GlassmorphicContainer(
-                                                width: 300,
-                                                height: 40,
-                                                borderRadius: 20,
+                                                width: 300.h,
+                                                height: 40.h,
+                                                borderRadius: 20.h,
                                                 blur: 15,
-                                                border: 2,
+                                                border: 2.h,
                                                 linearGradient: LinearGradient(
                                                     begin: Alignment.topLeft,
                                                     end: Alignment.bottomRight,
@@ -528,13 +594,12 @@ class _HomePageState extends State<HomePage> {
                                                 child: Center(
                                                   child: Padding(
                                                       padding:
-                                                          const EdgeInsets.all(
-                                                              3),
+                                                          EdgeInsets.all(3.h),
                                                       child: Text(
                                                         "Visibility: ${snapshot.data["visibility"] / 1000}km",
                                                         style: poppins(
                                                             Colors.white,
-                                                            25,
+                                                            25.sp,
                                                             FontWeight.w600),
                                                       )),
                                                 )),
@@ -549,7 +614,7 @@ class _HomePageState extends State<HomePage> {
                 }),
           ),
           Padding(
-            padding: const EdgeInsets.all(40),
+            padding: EdgeInsets.all(40.h),
             child: Center(
               child: SmoothPageIndicator(
                 controller: pageController,
@@ -558,6 +623,16 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
           ),
+          GetBuilder<Controller>(builder: (controller1) {
+            return Positioned(
+              bottom: 20.h,
+              left: 20.h,
+              child: Text(
+                "Last Updated:  ${controller1.time}",
+                style: poppins(Colors.white, 18.sp, FontWeight.normal),
+              ),
+            );
+          })
         ]),
       ),
     );

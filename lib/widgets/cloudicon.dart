@@ -1,6 +1,7 @@
 // ignore_for_file: deprecated_member_use
 
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:weather_app/widgets/textstyle.dart';
 
@@ -25,12 +26,13 @@ class CloudCoverageRow extends StatelessWidget {
       children: [
         SvgPicture.asset(
           cloudIcon,
-          width: 30,
-          height: 30,
+          width: 30.h,
+          height: 30.h,
           color: Colors.white,
         ),
-        const SizedBox(width: 10),
-        Text('$percentage%', style: poppins(Colors.white, 20, FontWeight.bold)),
+        SizedBox(width: 10.h),
+        Text('$percentage%',
+            style: poppins(Colors.white, 20.sp, FontWeight.bold)),
       ],
     );
   }
